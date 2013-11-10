@@ -178,6 +178,8 @@ class IndieAuthPlugin extends AuthPlugin {
   }
 
   /**
+   * NOTE: This is no longer used since the login form directs the user straight to indieauth.com, skipping the initial MW step 
+   *
    * Check if a username+password pair is a valid login.
    * The name will be normalized to MediaWiki's requirements, so
    * you might need to munge it (for instance, for lowercase initial
@@ -358,7 +360,7 @@ class IndieAuthPlugin extends AuthPlugin {
   function getCanonicalName($username) {
     // lowercase the username
     $username = strtolower($username);
-    // remove the 'http' on front
+    // remove the 'http' or 'https' on front
     $username = preg_replace('|^https?://|', '', $username);
     // remove trailing slash
     $username = trim($username, '/');
@@ -408,7 +410,7 @@ class IndieAuthLoginTemplate extends QuickTemplate {
 
 <div id="loginstart"><?php $this->msgWiki( 'loginstart' ); ?></div>
 <div id="userloginForm">
-<form name="userlogin" method="post" action="<?php $this->text('action') ?>">
+<form name="userlogin" method="get" action="https://indieauth.com/auth">
   <h2><?php $this->msg('login') ?></h2>
   <p id="userloginlink"><?php $this->html('link') ?></p>
   <?php $this->html('header'); /* pre-table point for form plugins... */ ?>
@@ -419,28 +421,13 @@ class IndieAuthLoginTemplate extends QuickTemplate {
     <tr>
       <td class="mw-label"><label for='wpName1'>Your Domain</label></td>
       <td class="mw-input">
-        <?php
-      echo Html::input( 'wpName', @$this->data['name'], 'text', array(
-        'class' => 'loginText',
-        'id' => 'wpName1',
-        'tabindex' => '1',
-        'size' => '20',
-        'required'
-        # Can't do + array( 'autofocus' ) because + for arrays in PHP
-        # only works right for associative arrays!  Thanks, PHP.
-      ) + ( @$this->data['name'] ? array() : array( 'autofocus' => '' ) ) ); ?>
-
+      	<input class="loginText" name="me" id="me" placeholder="example.com" size="20" tabindex="1">
       </td>
     </tr>
     <tr>
       <td></td>
       <td class="mw-submit">
-        <?php
-          echo Html::input( 'wpLoginAttempt', wfMsg( 'login' ), 'submit', array(
-            'id' => 'wpLoginAttempt',
-            'tabindex' => '9'
-          ) );
-        ?>
+      	<input type="submit" value="Log In">
       </td>
     </tr>
   </table>
@@ -453,10 +440,13 @@ class IndieAuthLoginTemplate extends QuickTemplate {
     Read the <a href="http://indiewebcamp.com/How_to_set_up_web_sign-in_on_your_own_domain">full setup instructions</a>.
   </div>
 
-  <input type="hidden" name="wpPassword" value="********" id="wpPassword1" />
+  <input type="hidden" name="redirect_uri" value="http://<?= $_SERVER['SERVER_NAME'] ?>/Special:IndieAuth?returnto=<?= (array_key_exists('returnto', $_GET) ? $_GET['returnto'] : '')?>">
 
-<?php if( @$this->haveData( 'uselang' ) ) { ?><input type="hidden" name="uselang" value="<?php $this->text( 'uselang' ); ?>" /><?php } ?>
-<?php if( @$this->haveData( 'token' ) ) { ?><input type="hidden" name="wpLoginToken" value="<?php $this->text( 'token' ); ?>" /><?php } ?>
+  <script>
+  	document.addEventListener("DOMContentLoaded", function(){
+	  document.getElementById("me").focus();
+  	});
+  </script>
 </form>
 </div>
 <div id="loginend"><?php $this->msgWiki( 'loginend' ); ?></div>
