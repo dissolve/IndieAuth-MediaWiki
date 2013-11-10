@@ -17,15 +17,24 @@
 
 error_reporting(E_ALL);
 
+include('/web/include/NerdhausBot.inc.php');
+
 //Extension credits that show up on Special:Version
 $wgExtensionCredits['other'][] = array(
         'name' => 'IndieAuthPlugin',
         'version' => '0.1.0',
         'author' => array('Aaron Parecki'),
         'url' => 'https://github.com/aaronpk/IndieAuth-MediaWiki',
-        'description' => 'Sign users in using the IndieAuth protocol.',
+        'description' => 'Sign users in using IndieAuth',
 );
  
+
+$blacklist = array(
+	'github.io',
+	'wordpress.com',
+	'blogspot.com',
+	'livejournal.com'
+);
 
 // Override the login form with our own
 $wgHooks['UserLoginForm'][] = 'IndieAuthPlugin::loginForm';
@@ -50,17 +59,47 @@ class mwSpecialIndieAuth extends SpecialPage
   
   function execute()
   {
-    global $wgOut, $wgAction, $wgRequest;
+    global $wgOut, $wgAction, $wgRequest, $blacklist;
 
     $wgOut->setPageTitle('IndieAuth');
-    
+
     if(isset($_GET['token']))
     {
       $domain = IndieAuthPlugin::indieAuthDomainFromToken($_GET['token']);
       $username = IndieAuthPlugin::getCanonicalName($domain);
 
+      // Check for logins from subdomains, not real indieweb domains
+      foreach($blacklist as $b) {
+	      if(strpos($domain, $b) !== FALSE) {
+		      header('Location: http://' . $_SERVER['SERVER_NAME'] . '/Special:IndieAuth?error=subdomain');
+		      die();
+	      }
+      }
+
       if($domain) {
         $id = User::idFromName($username);
+        
+        // If no user was found with their domain name as the username, check the OpenID table for the URL as well
+    		$db = wfGetDB(DB_SLAVE);
+    		$res = $db->select('user_openid', 
+    			array('uoi_user'),
+    			'uoi_openid LIKE "' . $domain . '%"',
+    			__METHOD__,
+    			array());
+    		
+    		$openIDUser = FALSE;
+    		foreach($res as $row) { // there should be only one
+    		  $openIDUser = $row->uoi_user;
+    		}
+    		if($openIDUser) {
+    		  // If an existing user account was found, update the user record
+    		  $user = User::newFromId($openIDUser);
+    		  $user->loadFromId();
+    		  $user->setRealName($domain);
+    		  $user->mName = $username;
+    		  $user->saveSettings();
+    		  $id = $openIDUser;
+    		}
         
         if (!$id) {
             $user = User::newFromName($username);
@@ -78,8 +117,8 @@ class mwSpecialIndieAuth extends SpecialPage
         $user->saveSettings();
 
         if(class_exists('NerdhausBot')) {
-          $N = new NerdhausBot('logs');
-          $N->Send('[mediawiki] New IndieAuth login: ' . $domain);
+          $N = new NerdhausBot('aaronpk');
+          $N->Send('[mediawiki] ' . $domain . ' logged in via IndieAuth');
         }
       }
 
@@ -102,6 +141,12 @@ class mwSpecialIndieAuth extends SpecialPage
     }
     else
     {
+      $errors = array(
+        'subdomain' => 'You need to be hosting your identity from your own domain name, not from a shared domain. See <a href="http://indiewebcamp.com/Getting_Started">Getting Started</a> for more information.'
+      );
+      if(@$_GET['error']) {
+	      $wgOut->addHTML('<p>' . $errors[$_GET['error']] . '</p>');
+      }
       $wgOut->addHTML('<a href="http://' . $_SERVER['SERVER_NAME'] . '/Special:UserLogin">Log In</a>');
     }
   }
@@ -405,7 +450,7 @@ class IndieAuthLoginTemplate extends QuickTemplate {
       <li>Add a link on your home page to your various social profiles (Twitter, Github, etc) with the attribute rel="me"</li>
       <li>Ensure your profiles link back to your home page.</li>
     </ul>
-    Read the <a href="https://indieauth.com/setup">full setup instructions</a>.
+    Read the <a href="http://indiewebcamp.com/How_to_set_up_web_sign-in_on_your_own_domain">full setup instructions</a>.
   </div>
 
   <input type="hidden" name="wpPassword" value="********" id="wpPassword1" />
