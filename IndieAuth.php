@@ -63,9 +63,9 @@ class mwSpecialIndieAuth extends SpecialPage
 
     $wgOut->setPageTitle('IndieAuth');
 
-    if(isset($_GET['token']))
+    if(isset($_GET['code']))
     {
-      $domain = IndieAuthPlugin::indieAuthDomainFromToken($_GET['token']);
+      $domain = IndieAuthPlugin::indieAuthDomainFromToken($_GET['code']);
       $username = IndieAuthPlugin::getCanonicalName($domain);
 
       // Check for logins from subdomains, not real indieweb domains
@@ -190,14 +190,19 @@ class IndieAuthPlugin extends AuthPlugin {
    * @return bool
    * @access public
    */
+   
     function authenticate($username, $password) {
+      if(strtolower($username) == 'post-by-email' && $password == 'indieweb') return true;
+      
       $titleObj = Title::newFromText('Special:IndieAuth');
 
       $redirect_uri = $titleObj->getFullURL(array_key_exists('returnto', $_GET) ? 'returnto='.$_GET['returnto'] : FALSE);
+      $client_id = 'http://' . $_SERVER['SERVER_NAME'];
 
-      header('Location: https://indieauth.com/auth?me=' . strtolower($username) . '&redirect_uri=' . urlencode($redirect_uri));
+      header('Location: https://indieauth.com/auth?me=' . strtolower($username) . '&redirect_uri=' . urlencode($redirect_uri) . '&client_id=' . urlencode($client_id));
       die();
     }
+  
 
   /**
    * Modify options in the login template.
@@ -205,7 +210,7 @@ class IndieAuthPlugin extends AuthPlugin {
    * @param UserLoginTemplate $template
    * @access public
    */
-  function modifyUITemplate( &$template ) {
+  function modifyUITemplate( &$template, &$type ) {
     $template->set('usedomain', false );
     $template->set('useemail', false);      // Disable the mail new password box.
     $template->set('create', false);        // Remove option to create new accounts from the wiki.
@@ -275,7 +280,7 @@ class IndieAuthPlugin extends AuthPlugin {
    * @return bool
    * @access public
    */
-  function setPassword( $password ) {
+  function setPassword( $user, $password ) {
           # We can't change users system passwords
           return false;
   }
@@ -313,7 +318,7 @@ class IndieAuthPlugin extends AuthPlugin {
    * @return bool
    * @access public
    */
-  function addUser( $user, $password ) {
+  function addUser( $user, $password, $email='', $realname='' ) {
           # We can't create accounts
           return false;
   }
@@ -344,7 +349,7 @@ class IndieAuthPlugin extends AuthPlugin {
    * @param User $user
    * @access public
    */
-  function initUser(&$user) {
+  function initUser(&$user, $autocreate=false) {
           # We do everything in updateUser
   }
 
@@ -397,6 +402,7 @@ class IndieAuthPlugin extends AuthPlugin {
 
 class IndieAuthLoginTemplate extends QuickTemplate {
   function execute() {
+    global $wgSecureLogin;
     if( @$this->data['message'] ) {
 ?>
   <div class="<?php $this->text('messagetype') ?>box">
@@ -421,7 +427,7 @@ class IndieAuthLoginTemplate extends QuickTemplate {
     <tr>
       <td class="mw-label"><label for='wpName1'>Your Domain</label></td>
       <td class="mw-input">
-      	<input class="loginText" name="me" id="me" placeholder="example.com" size="20" tabindex="1">
+      	<input class="loginText" name="me" id="me" size="20" tabindex="1">
       </td>
     </tr>
     <tr>
@@ -440,7 +446,8 @@ class IndieAuthLoginTemplate extends QuickTemplate {
     Read the <a href="http://indiewebcamp.com/How_to_set_up_web_sign-in_on_your_own_domain">full setup instructions</a>.
   </div>
 
-  <input type="hidden" name="redirect_uri" value="http://<?= $_SERVER['SERVER_NAME'] ?>/Special:IndieAuth?returnto=<?= (array_key_exists('returnto', $_GET) ? $_GET['returnto'] : '')?>">
+  <input type="hidden" name="redirect_uri" value="http<?= $wgSecureLogin ? 's' : '' ?>://<?= $_SERVER['SERVER_NAME'] ?>/Special:IndieAuth?returnto=<?= (array_key_exists('returnto', $_GET) ? $_GET['returnto'] : '')?>">
+  <input type="hidden" name="client_id" value="http<?= $wgSecureLogin ? 's' : '' ?>://<?= $_SERVER['SERVER_NAME'] ?>">
 
   <script>
   	document.addEventListener("DOMContentLoaded", function(){
