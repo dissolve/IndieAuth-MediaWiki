@@ -59,7 +59,7 @@ class mwSpecialIndieAuth extends SpecialPage
   
   function execute()
   {
-    global $wgOut, $wgAction, $wgRequest, $blacklist;
+    global $wgOut, $wgAction, $wgRequest, $wgSecureLogin, $blacklist;
 
     $wgOut->setPageTitle('IndieAuth');
 
@@ -71,7 +71,7 @@ class mwSpecialIndieAuth extends SpecialPage
       // Check for logins from subdomains, not real indieweb domains
       foreach($blacklist as $b) {
 	      if(strpos($domain, $b) !== FALSE) {
-		      header('Location: http://' . $_SERVER['SERVER_NAME'] . '/Special:IndieAuth?error=subdomain');
+		      header('Location: http'.($wgSecureLogin ? 's' : '').'://' . $_SERVER['SERVER_NAME'] . '/Special:IndieAuth?error=subdomain');
 		      die();
 	      }
       }
@@ -130,10 +130,6 @@ class mwSpecialIndieAuth extends SpecialPage
           $titleObj = Title::newMainPage();
         }
         $redirectUrl = $titleObj->getFullURL( $mReturnToQuery );
-        global $wgSecureLogin;
-        if( $wgSecureLogin && !$this->mStickHTTPS ) {
-          $redirectUrl = preg_replace( '/^https:/', 'http:', $redirectUrl );
-        }
         $wgOut->redirect( $redirectUrl );
       } else {
         header('Location: /');
@@ -147,7 +143,7 @@ class mwSpecialIndieAuth extends SpecialPage
       if(@$_GET['error']) {
 	      $wgOut->addHTML('<p>' . $errors[$_GET['error']] . '</p>');
       }
-      $wgOut->addHTML('<a href="http://' . $_SERVER['SERVER_NAME'] . '/Special:UserLogin">Log In</a>');
+      $wgOut->addHTML('<a href="http'.($wgSecureLogin ? 's' : '').'://' . $_SERVER['SERVER_NAME'] . '/Special:UserLogin">Log In</a>');
     }
   }
 }
@@ -192,12 +188,13 @@ class IndieAuthPlugin extends AuthPlugin {
    */
    
     function authenticate($username, $password) {
+      global $wgSecureLogin;
       if(strtolower($username) == 'post-by-email' && $password == 'indieweb') return true;
       
       $titleObj = Title::newFromText('Special:IndieAuth');
 
       $redirect_uri = $titleObj->getFullURL(array_key_exists('returnto', $_GET) ? 'returnto='.$_GET['returnto'] : FALSE);
-      $client_id = 'http://' . $_SERVER['SERVER_NAME'];
+      $client_id = 'http'.($wgSecureLogin ? 's' : '').'://' . $_SERVER['SERVER_NAME'];
 
       header('Location: https://indieauth.com/auth?me=' . strtolower($username) . '&redirect_uri=' . urlencode($redirect_uri) . '&client_id=' . urlencode($client_id));
       die();
