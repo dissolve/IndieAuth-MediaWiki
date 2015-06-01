@@ -174,8 +174,6 @@ class IndieAuthPlugin extends AuthPlugin {
   }
 
   /**
-   * NOTE: This is no longer used since the login form directs the user straight to indieauth.com, skipping the initial MW step 
-   *
    * Check if a username+password pair is a valid login.
    * The name will be normalized to MediaWiki's requirements, so
    * you might need to munge it (for instance, for lowercase initial
@@ -193,10 +191,60 @@ class IndieAuthPlugin extends AuthPlugin {
       
       $titleObj = Title::newFromText('Special:IndieAuth');
 
-      $redirect_uri = $titleObj->getFullURL(array_key_exists('returnto', $_GET) ? 'returnto='.$_GET['returnto'] : FALSE);
+      $redirect_uri = "http".($wgSecureLogin ? 's' : '')."://". $_SERVER['SERVER_NAME']."/Special:IndieAuth?returnto=".(array_key_exists('returnto', $_GET) ? $_GET['returnto'] : '');
       $client_id = 'http'.($wgSecureLogin ? 's' : '').'://' . $_SERVER['SERVER_NAME'];
 
-      header('Location: https://indieauth.com/auth?me=' . strtolower($username) . '&redirect_uri=' . urlencode($redirect_uri) . '&client_id=' . urlencode($client_id));
+      $default_endpoint = "https://indieauth.com/auth";
+
+      $ch = curl_init();
+
+      $location = 'http://ben.thatmustbe.me/';
+      curl_setopt($ch, CURLOPT_URL, $location);
+      curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+      curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+      curl_setopt($ch, CURLOPT_HEADER,true);
+
+      $result = curl_exec($ch);
+
+      $corrected_url =  curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+      curl_close($ch);
+      if($corrected_url != $location){
+        $ch = curl_init();
+
+        curl_setopt($ch, CURLOPT_URL, $corrected_url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+        curl_setopt($ch, CURLOPT_HEADER,true);
+
+        $result = curl_exec($ch);
+      }
+
+
+      $matches = array();
+      preg_match('/<([^>]*)>;\s+rel=["\']authorization_endpoint["\']/i', $result, $matches);
+      if(!empty($matches)){
+        $auth_endpoint = $matches[1];
+      }
+      else {
+        preg_match('/<link\s+rel=["\']token_endpoint["\']\s+href=["\']([^"\']*)["\']/i', $result, $matches);
+        if(!empty($matches)){
+          $auth_endpoint = $matches[1];
+        }
+        else {
+          preg_match('/<link\s+href=["\']([^"\']*)["\']\s+rel=["\']authorization_endpoint["\']/i', $result, $matches);
+          if(!empty($matches)){
+            $auth_endpoint = $matches[1];
+          }
+          else {
+            $auth_endpoint = $default_endpoint;
+          }
+        }
+      }
+      $_SESSION['auth_endpoint'] = $auth_endpoint;
+      $_SESSION['auth_me'] = strtolower($username);
+      $_SESSION['auth_redirect_uri'] = $redirect_uri;
+      $_SESSION['auth_client_id'] = $client_id;
+
+      header('Location: '.$auth_endpoint.(strpos($auth_endpoint, '?') ? '&' : '?') . 'me=' . strtolower($username) . '&redirect_uri=' . urlencode($redirect_uri) . '&client_id=' . urlencode($client_id));
       die();
     }
   
@@ -373,8 +421,22 @@ class IndieAuthPlugin extends AuthPlugin {
   }
 
   function indieAuthDomainFromToken($token) {
-    $ch = curl_init('https://indieauth.com/session?token=' . $token);
+    $auth_endpoint = $_SESSION['auth_endpoint'];
+    $redirect_uri = $_SESSION['auth_redirect_uri'];
+    $client_id = $_SESSION['auth_client_id'];
+
+    $post_array = array(
+        'code'          => $token,
+        'redirect_uri'  => $redirect_uri,
+        'client_id'     => $client_id
+    );
+    $post_data = http_build_query($post_array);
+
+    $ch = curl_init($auth_endpoint);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+
     $response = curl_exec($ch);
     if(!$response) {
       // error
@@ -413,7 +475,7 @@ class IndieAuthLoginTemplate extends QuickTemplate {
 
 <div id="loginstart"><?php $this->msgWiki( 'loginstart' ); ?></div>
 <div id="userloginForm">
-<form name="userlogin" method="get" action="https://indieauth.com/auth">
+<form name="userlogin" method="post" action="<?php $this->text('action') ?>">
   <h2><?php $this->msg('login') ?></h2>
   <p id="userloginlink"><?php $this->html('link') ?></p>
   <?php $this->html('header'); /* pre-table point for form plugins... */ ?>
@@ -424,13 +486,27 @@ class IndieAuthLoginTemplate extends QuickTemplate {
     <tr>
       <td class="mw-label"><label for='wpName1'>Your Domain</label></td>
       <td class="mw-input">
-      	<input class="loginText" name="me" id="me" size="20" tabindex="1">
+        <?php
+        echo Html::input( 'wpName', @$this->data['name'], 'text', array(
+        'class' => 'loginText',
+        'id' => 'wpName1',
+        'tabindex' => '1',
+        'size' => '20',
+        'required'
+        # Can't do + array( 'autofocus' ) because + for arrays in PHP
+        # only works right for associative arrays! Thanks, PHP.
+        ) + ( @$this->data['name'] ? array() : array( 'autofocus' => '' ) ) ); ?>
       </td>
     </tr>
     <tr>
       <td></td>
       <td class="mw-submit">
-      	<input type="submit" value="Log In">
+      <?php
+        echo Html::input( 'wpLoginAttempt', wfMsg( 'login' ), 'submit', array(
+          'id' => 'wpLoginAttempt',
+          'tabindex' => '9'
+        ) );
+      ?>
       </td>
     </tr>
   </table>
