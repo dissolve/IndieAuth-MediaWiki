@@ -225,7 +225,7 @@ class IndieAuthPlugin extends AuthPlugin {
         $auth_endpoint = $matches[1];
       }
       else {
-        preg_match('/<link\s+rel=["\']token_endpoint["\']\s+href=["\']([^"\']*)["\']/i', $result, $matches);
+        preg_match('/<link\s+rel=["\']authorization_endpoint["\']\s+href=["\']([^"\']*)["\']/i', $result, $matches);
         if(!empty($matches)){
           $auth_endpoint = $matches[1];
         }
